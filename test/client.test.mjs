@@ -5,7 +5,7 @@
  * 宿主 DSHA_SESSION_INTERACTION_V2 把会话行拆成「单击=选中、双击=打开」，
  * 抽屉如果在第一次点击就收起，第二次点击永远落不到行上，会话就打不开了。
  *
- *   node --test test/
+ *   node --test test/client.test.mjs
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -85,4 +85,33 @@ test("收抽屉按 DOM 真实状态判断，并按意图去抖", () => {
   assert.ok(source.includes("actions.sessions() { setDrawer(!drawerOpenNow()); }") ||
     source.includes("sessions() { setDrawer(!drawerOpenNow()); }"),
     "底栏「会话」应按真实状态取反");
+});
+
+test("⋯ 菜单锚点 / 行内操作区 / 菜单本身：都不当成「点行」", () => {
+  // 宿主实测（2026-10-03，dsh-client-ui-workspace）：⋯ 锚点是 span[class*=_rowActions] 里的
+  // button，只有 aria-label，没有 aria-haspopup；菜单由宿主 portal 到 body（role=menu）。
+  assert.equal(plugin.isRowActionTarget({ closest: (sel) => (sel === plugin.ROW_ACTION_SELECTOR ? {} : null) }), true);
+  assert.equal(plugin.isRowActionTarget({ closest: () => ({}) }), true, "命中操作区就豁免");
+  assert.equal(plugin.isRowActionTarget({ closest: () => null }), false, "行体本身要照常打开会话");
+  assert.equal(plugin.isRowActionTarget(null), false);
+  assert.equal(plugin.isRowActionTarget({}), false, "没有 closest 也不能炸");
+});
+
+test("豁免选择器必须能命中宿主的 ⋯ 锚点（它没有 aria-haspopup）", () => {
+  // 老写法只认 button[aria-haspopup]，宿主的 ⋯ 不匹配 → 点击被当成点行，
+  // 打开会话并收起抽屉，菜单永远打不开（删除 / 改名 / 归档全做不了）。
+  const sel = plugin.ROW_ACTION_SELECTOR;
+  assert.ok(sel.includes("button"), "行内按钮");
+  assert.ok(sel.includes("_rowActions"), "宿主的行内操作区（稳定子串）");
+  assert.ok(sel.includes("[role=menu]"), "菜单面板（portal 到 body）");
+  assert.ok(sel.includes("[role=menuitem]"), "菜单条目");
+  assert.ok(!sel.includes("aria-haspopup"), "锚点没有 aria-haspopup，不能再依赖它");
+});
+
+test("⋯ 菜单要抬到抽屉之上、且在触屏常显", () => {
+  // 宿主把菜单 portal 到 body，默认层级低于抽屉（60）→ 菜单整块画在抽屉下面，点不到。
+  // 触屏没有 hover，行内操作区只在 :hover / menuOpen 时显示 → 不常显就没有入口。
+  const source = readFileSync(clientPath, "utf8");
+  assert.ok(/\[role=menu\]\{z-index:1400/.test(source), "菜单层级必须高于抽屉");
+  assert.ok(/\[class\*="_rowActions"\]\{display:inline-flex/.test(source), "抽屉里的 ⋯ 要常显");
 });
